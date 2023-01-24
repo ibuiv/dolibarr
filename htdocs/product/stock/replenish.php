@@ -6,7 +6,7 @@
  * Copyright (C) 2016		ATM Consulting		<support@atm-consulting.fr>
  * Copyright (C) 2019       Frédéric France         <frederic.france@netlogic.fr>
  * Copyright (C) 2021		Ferran Marcet		<fmarcet@2byte.es>
- * Copyright (C) 2021		Antonin MARCHAL		<antonin@letempledujeu.fr>
+ * Copyright (C) 2021-2023		Antonin MARCHAL		<antonin@letempledujeu.fr>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -394,7 +394,7 @@ if (!empty($conf->variants->eabled) && empty($conf->global->VARIANT_ALLOW_STOCK_
 	$sql .= ' AND p.rowid NOT IN (SELECT pac.fk_product_parent FROM '.MAIN_DB_PREFIX.'product_attribute_combination as pac WHERE pac.entity IN ('.getEntity('product').'))';
 }
 if ($fk_supplier > 0) {
-	$sql .= ' AND EXISTS (SELECT pfp.rowid FROM '.MAIN_DB_PREFIX.'product_fournisseur_price as pfp WHERE pfp.fk_product = p.rowid AND pfp.fk_soc = '.((int) $fk_supplier).' AND pfp.entity IN ('.getEntity('product_fournisseur_price').'))';
+	$sql .= ' AND EXISTS (SELECT pfp.rowid FROM '.MAIN_DB_PREFIX.'product_fournisseur_price as pfp WHERE pfp.fk_product = p.rowid AND pfp.fk_soc = '.((int) $fk_supplier).' AND pfp.entity IN ('.getEntity('productsupplierprice').'))';
 }
 // Add where from hooks
 $parameters = array();
@@ -480,13 +480,26 @@ if ($usevirtualstock) {
 	}
 
 	$sql .= ' HAVING (';
+	if (!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) {
+		$sql .= " (" . $sqldesiredtock . " >= 0 AND (" . $sqldesiredtock . " > SUM(" . $db->ifsql("s.reel IS NULL OR s.fk_entrepot <> " . $fk_entrepot, "0", "s.reel") . ')';
+	} else {
+		$sql .= " (" . $sqldesiredtock . " >= 0 AND (" . $sqldesiredtock . " > SUM(" . $db->ifsql("s.reel IS NULL", "0", "s.reel") . ')';
+	}
 	$sql .= " (".$sqldesiredtock." >= 0 AND (".$sqldesiredtock." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").')';
 	$sql .= " - (".$sqlCommandesCli." - ".$sqlExpeditionsCli.") + (".$sqlCommandesFourn." - ".$sqlReceptionFourn.") + (".$sqlProductionToProduce." - ".$sqlProductionToConsume.")))";
 	$sql .= ' OR';
 	if ($includeproductswithoutdesiredqty == 'on') {
-		$sql .= " ((".$sqlalertstock." >= 0 OR ".$sqlalertstock." IS NULL) AND (".$db->ifsql($sqlalertstock." IS NULL", "0", $sqlalertstock)." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").")";
+		if (!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) {
+			$sql .= " ((" . $sqlalertstock . " >= 0 OR " . $sqlalertstock . " IS NULL) AND (" . $db->ifsql($sqlalertstock . " IS NULL", "0", $sqlalertstock) . " > SUM(" . $db->ifsql("s.reel IS NULL OR s.fk_entrepot <> " . $fk_entrepot, "0", "s.reel") . ")";
+		} else {
+			$sql .= " ((" . $sqlalertstock . " >= 0 OR " . $sqlalertstock . " IS NULL) AND (" . $db->ifsql($sqlalertstock . " IS NULL", "0", $sqlalertstock) . " > SUM(" . $db->ifsql("s.reel IS NULL", "0", "s.reel") . ")";
+		}
 	} else {
-		$sql .= " (".$sqlalertstock." >= 0 AND (".$sqlalertstock." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").')';
+		if (!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) {
+			$sql .= " (" . $sqlalertstock . " >= 0 AND (" . $sqlalertstock . " > SUM(" . $db->ifsql("s.reel IS NULL OR s.fk_entrepot <> " . $fk_entrepot, "0", "s.reel") . ')';
+		} else {
+			$sql .= " (" . $sqlalertstock . " >= 0 AND (" . $sqlalertstock . " > SUM(" . $db->ifsql("s.reel IS NULL", "0", "s.reel") . ')';
+		}
 	}
 	$sql .= " - (".$sqlCommandesCli." - ".$sqlExpeditionsCli.") + (".$sqlCommandesFourn." - ".$sqlReceptionFourn.") + (".$sqlProductionToProduce." - ".$sqlProductionToConsume.")))";
 	$sql .= ")";
@@ -494,9 +507,17 @@ if ($usevirtualstock) {
 	if ($salert == 'on') {	// Option to see when stock is lower than alert
 		$sql .= ' AND (';
 		if ($includeproductswithoutdesiredqty == 'on') {
-			$sql .= "(".$sqlalertstock." >= 0 OR ".$sqlalertstock." IS NULL) AND (".$db->ifsql($sqlalertstock." IS NULL", "0", $sqlalertstock)." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").")";
+			if (!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) {
+				$sql .= "(".$sqlalertstock." >= 0 OR ".$sqlalertstock." IS NULL) AND (".$db->ifsql($sqlalertstock." IS NULL", "0", $sqlalertstock)." > SUM(".$db->ifsql("s.reel IS NULL OR s.fk_entrepot <> " . $fk_entrepot, "0", "s.reel").")";
+			} else {
+				$sql .= "(".$sqlalertstock." >= 0 OR ".$sqlalertstock." IS NULL) AND (".$db->ifsql($sqlalertstock." IS NULL", "0", $sqlalertstock)." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").")";
+			}
 		} else {
-			$sql .= $sqlalertstock." >= 0 AND (".$sqlalertstock." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").")";
+			if (!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) {
+				$sql .= $sqlalertstock." >= 0 AND (".$sqlalertstock." > SUM(".$db->ifsql("s.reel IS NULL OR s.fk_entrepot <> " . $fk_entrepot, "0", "s.reel").")";
+			} else {
+				$sql .= $sqlalertstock." >= 0 AND (".$sqlalertstock." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").")";
+			}
 		}
 		$sql .= " - (".$sqlCommandesCli." - ".$sqlExpeditionsCli.") + (".$sqlCommandesFourn." - ".$sqlReceptionFourn.")  + (".$sqlProductionToProduce." - ".$sqlProductionToConsume."))";
 		$sql .= ")";
@@ -504,19 +525,35 @@ if ($usevirtualstock) {
 	}
 } else {
 	$sql .= ' HAVING (';
-	$sql .= "(".$sqldesiredtock." >= 0 AND (".$sqldesiredtock." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").")))";
+	if (!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) {
+		$sql .= "(" . $sqldesiredtock . " >= 0 AND (" . $sqldesiredtock . " > SUM(" . $db->ifsql("s.reel IS NULL OR s.fk_entrepot <> " . $fk_entrepot, "0", "s.reel") . ")))";
+	} else {
+		$sql .= "(" . $sqldesiredtock . " >= 0 AND (" . $sqldesiredtock . " > SUM(" . $db->ifsql("s.reel IS NULL", "0", "s.reel") . ")))";
+	}
 	$sql .= ' OR';
 	if ($includeproductswithoutdesiredqty == 'on') {
-		$sql .= " ((".$sqlalertstock." >= 0 OR ".$sqlalertstock." IS NULL) AND (".$db->ifsql($sqlalertstock." IS NULL", "0", $sqlalertstock)." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").')))';
+		if (!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) {
+			$sql .= " ((" . $sqlalertstock . " >= 0 OR " . $sqlalertstock . " IS NULL) AND (" . $db->ifsql($sqlalertstock . " IS NULL", "0", $sqlalertstock) . " > SUM(" . $db->ifsql("s.reel IS NULL OR s.fk_entrepot <> " . $fk_entrepot, "0", "s.reel") . ')))';
+		} else {
+			$sql .= " ((" . $sqlalertstock . " >= 0 OR " . $sqlalertstock . " IS NULL) AND (" . $db->ifsql($sqlalertstock . " IS NULL", "0", $sqlalertstock) . " > SUM(" . $db->ifsql("s.reel IS NULL", "0", "s.reel") . ')))';
+		}
 	} else {
-		$sql .= " (".$sqlalertstock." >= 0 AND (".$sqlalertstock." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").')))';
+		if (!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) {
+			$sql .= " (" . $sqlalertstock . " >= 0 AND (" . $sqlalertstock . " > SUM(" . $db->ifsql("s.reel IS NULL OR s.fk_entrepot <> " . $fk_entrepot, "0", "s.reel") . ')))';
+		} else {
+			$sql .= " (" . $sqlalertstock . " >= 0 AND (" . $sqlalertstock . " > SUM(" . $db->ifsql("s.reel IS NULL", "0", "s.reel") . ')))';
+		}
 	}
 	$sql .= ')';
 
 	if ($salert == 'on') {	// Option to see when stock is lower than alert
 		$sql .= " AND (";
 		if ($includeproductswithoutdesiredqty == 'on') {
-			$sql .= " (".$sqlalertstock." >= 0 OR ".$sqlalertstock." IS NULL) AND (".$db->ifsql($sqlalertstock." IS NULL", "0", $sqlalertstock)." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel")."))";
+			if (!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) {
+				$sql .= " (".$sqlalertstock." >= 0 OR ".$sqlalertstock." IS NULL) AND (".$db->ifsql($sqlalertstock." IS NULL", "0", $sqlalertstock)." > SUM(".$db->ifsql("s.reel IS NULL OR s.fk_entrepot <> " . $fk_entrepot, "0", "s.reel")."))";
+			} else {
+				$sql .= " (".$sqlalertstock." >= 0 OR ".$sqlalertstock." IS NULL) AND (".$db->ifsql($sqlalertstock." IS NULL", "0", $sqlalertstock)." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel")."))";
+			}
 		} else {
 			$sql .= " ".$sqlalertstock." >= 0 AND (".$sqlalertstock." > SUM(".$db->ifsql("s.reel IS NULL", "0", "s.reel").'))';
 		}
@@ -913,10 +950,10 @@ while ($i < ($limit ? min($num, $limit) : $num)) {
 		}
 
 		// Desired stock
-		print '<td class="right">'.((!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) > 0 ? $desiredstockwarehouse : $desiredstock).'</td>';
+		print '<td class="right">'.((!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) > 0 ? ($objp->desiredstockpse ? $desiredstockwarehouse : img_info($langs->trans('ProductValuesUsedBecauseNoValuesForThisWarehouse')) . $desiredstock) : $desiredstock).'</td>';
 
 		// Limit stock for alert
-		print '<td class="right">'.((!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) > 0 ? $alertstockwarehouse : $alertstock).'</td>';
+		print '<td class="right">'.((!empty($conf->global->STOCK_ALLOW_ADD_LIMIT_STOCK_BY_WAREHOUSE) && $fk_entrepot > 0) > 0 ? ($objp->seuil_stock_alertepse ? $alertstockwarehouse : img_info($langs->trans('ProductValuesUsedBecauseNoValuesForThisWarehouse')) . $alertstock) : $alertstock).'</td>';
 
 		// Current stock (all warehouses)
 		print '<td class="right">'.$warning.$stock;
